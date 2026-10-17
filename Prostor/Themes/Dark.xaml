@@ -1,0 +1,42 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <SolidColorBrush x:Key="Brush.Bg" Color="#0F1117"/>
+    <SolidColorBrush x:Key="Brush.Sidebar" Color="#13161D"/>
+    <SolidColorBrush x:Key="Brush.Surface" Color="#181C24"/>
+    <SolidColorBrush x:Key="Brush.SurfaceAlt" Color="#1F2430"/>
+    <SolidColorBrush x:Key="Brush.SurfaceHigh" Color="#272D3A"/>
+    <SolidColorBrush x:Key="Brush.Border" Color="#242A36"/>
+    <SolidColorBrush x:Key="Brush.BorderStrong" Color="#333B4B"/>
+
+    <SolidColorBrush x:Key="Brush.Text" Color="#ECEEF3"/>
+    <SolidColorBrush x:Key="Brush.TextSecondary" Color="#A3ABBB"/>
+    <SolidColorBrush x:Key="Brush.TextMuted" Color="#6E7689"/>
+
+    <SolidColorBrush x:Key="Brush.Accent" Color="#7B6CFF"/>
+    <SolidColorBrush x:Key="Brush.AccentHover" Color="#8F82FF"/>
+    <SolidColorBrush x:Key="Brush.AccentSoft" Color="#2A7B6CFF"/>
+    <SolidColorBrush x:Key="Brush.AccentBorder" Color="#667B6CFF"/>
+    <SolidColorBrush x:Key="Brush.AccentText" Color="#FFFFFF"/>
+    <LinearGradientBrush x:Key="Brush.AccentGradient" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#8B5CF6" Offset="0"/>
+        <GradientStop Color="#3B82F6" Offset="1"/>
+    </LinearGradientBrush>
+
+    <SolidColorBrush x:Key="Brush.Success" Color="#3DD68C"/>
+    <SolidColorBrush x:Key="Brush.SuccessSoft" Color="#223DD68C"/>
+    <SolidColorBrush x:Key="Brush.Warning" Color="#FFB547"/>
+    <SolidColorBrush x:Key="Brush.WarningSoft" Color="#22FFB547"/>
+    <SolidColorBrush x:Key="Brush.Danger" Color="#FF5C6C"/>
+    <SolidColorBrush x:Key="Brush.DangerHover" Color="#FF7684"/>
+    <SolidColorBrush x:Key="Brush.DangerSoft" Color="#22FF5C6C"/>
+    <SolidColorBrush x:Key="Brush.Info" Color="#4FA8FF"/>
+    <SolidColorBrush x:Key="Brush.InfoSoft" Color="#224FA8FF"/>
+
+    <SolidColorBrush x:Key="Brush.Track" Color="#262C38"/>
+    <SolidColorBrush x:Key="Brush.Thumb" Color="#3A4252"/>
+    <SolidColorBrush x:Key="Brush.ThumbHover" Color="#4C5568"/>
+    <SolidColorBrush x:Key="Brush.Overlay" Color="#B0080A0F"/>
+    <SolidColorBrush x:Key="Brush.Folder" Color="#F5B83D"/>
+
+</ResourceDictionary>

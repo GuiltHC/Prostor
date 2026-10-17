@@ -1,0 +1,9 @@
+bin/
+obj/
+dist/
+.vs/
+.vscode/
+*.user
+*.suo
+*.pfx
+TestResults/

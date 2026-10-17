@@ -1,0 +1,92 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Prostor</AssemblyName>
+    <RootNamespace>Prostor</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <Product>Простор</Product>
+    <AssemblyTitle>Простор — программы и место на диске</AssemblyTitle>
+    <Company>Простор</Company>
+    <Version>1.1.0</Version>
+    <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="10.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Prostor.Tests" />
+  </ItemGroup>
+
+  <!--
+    Release builds trim only the Windows SDK projection (24 MB, of which the app uses PackageManager and UISettings).
+    WPF does not support trimming, so every other assembly, .NET itself included, is kept whole.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(SelfContained)' == 'true'">
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <_SuppressWpfTrimError>true</_SuppressWpfTrimError>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <!-- Trimming also switches runtime features off by default. WPF and the app rely on them (COM for themes, Task
+         Scheduler and shell links, reflection-based JSON for settings), so they stay as in an ordinary build. -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <CustomResourceTypesSupport>true</CustomResourceTypesSupport>
+    <EnableCppCLIHostActivation>true</EnableCppCLIHostActivation>
+    <StartupHookSupport>true</StartupHookSupport>
+    <Http3Support>true</Http3Support>
+    <_ComObjectDescriptorSupport>true</_ComObjectDescriptorSupport>
+    <_DesignerHostSupport>true</_DesignerHostSupport>
+    <_DefaultValueAttributeSupport>true</_DefaultValueAttributeSupport>
+    <_DataSetXmlSerializationSupport>true</_DataSetXmlSerializationSupport>
+  </PropertyGroup>
+
+  <Target Name="TrimOnlyWindowsSdkProjection" BeforeTargets="PrepareForILLink" Condition="'$(PublishTrimmed)' == 'true'">
+    <ItemGroup>
+      <ManagedAssemblyToLink Condition="'%(Filename)' != 'Microsoft.Windows.SDK.NET'">
+        <IsTrimmable>false</IsTrimmable>
+      </ManagedAssemblyToLink>
+    </ItemGroup>
+  </Target>
+
+  <!--
+    The trimmer only runs for self-contained apps, so the framework-dependent (lite) build takes the projection trimmed
+    by the self-contained publish that build.ps1 runs just before it. That copy is used only if the trimmer saw exactly
+    this Prostor.dll (builds are deterministic); otherwise the full projection is published.
+  -->
+  <Target Name="UseTrimmedWindowsSdkProjection" AfterTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(Configuration)' == 'Release' and '$(SelfContained)' != 'true'">
+    <PropertyGroup>
+      <_LinkedDir>$(ProjectDir)$(IntermediateOutputPath)linked\</_LinkedDir>
+      <_TrimmedProjection>$(_LinkedDir)Microsoft.Windows.SDK.NET.dll</_TrimmedProjection>
+    </PropertyGroup>
+    <GetFileHash Files="@(IntermediateAssembly->'%(FullPath)')" Condition="Exists('$(_TrimmedProjection)')">
+      <Output TaskParameter="Hash" PropertyName="_AppHash" />
+    </GetFileHash>
+    <GetFileHash Files="$(_LinkedDir)$(TargetFileName)" Condition="Exists('$(_LinkedDir)$(TargetFileName)')">
+      <Output TaskParameter="Hash" PropertyName="_LinkedAppHash" />
+    </GetFileHash>
+    <ItemGroup Condition="'$(_AppHash)' != '' and '$(_AppHash)' == '$(_LinkedAppHash)'">
+      <_FullProjection Include="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)' == 'Microsoft.Windows.SDK.NET.dll'" />
+      <ResolvedFileToPublish Remove="@(_FullProjection)" />
+      <ResolvedFileToPublish Include="@(_FullProjection->'$(_TrimmedProjection)')" />
+    </ItemGroup>
+    <Message Importance="high" Condition="'$(_AppHash)' != '' and '$(_AppHash)' == '$(_LinkedAppHash)'" Text="Lite build: using the trimmed Windows SDK projection" />
+    <Warning Condition="'$(_AppHash)' == '' or '$(_AppHash)' != '$(_LinkedAppHash)'" Text="Lite build: no matching trimmed projection, publishing the full 24 MB one (run build.ps1 to build both variants)" />
+  </Target>
+
+</Project>

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Prostor.Tests/Prostor.Tests.csproj" />
+  <Project Path="Prostor/Prostor.csproj" />
+</Solution>
