@@ -15,6 +15,7 @@ use crate::ui::ask::{self, Ask, Kind as Btn};
 use crate::ui::{self, Busy, Lucide, Tone};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
@@ -1182,10 +1183,20 @@ impl AnalyzerView {
             });
         }
         rows.sort_by_key(|r| std::cmp::Reverse(r.size));
+        // the path behind each row, for its context menu (none for the virtual folder and "Ещё N")
+        let paths: Vec<Option<PathBuf>> = rows
+            .iter()
+            .map(|r| match &r.target {
+                Target::Dir(nav) => (!t.at(nav).is_virtual).then(|| t.full_path(nav)),
+                Target::File(parent, name) => Some(t.full_path(parent).join(name)),
+                Target::Rest => None,
+            })
+            .collect();
         drop(t);
+        let this = cx.entity().downgrade();
 
         let mut list = v_flex().gap_0p5().p_1p5();
-        for (k, r) in rows.into_iter().enumerate() {
+        for (k, (r, path)) in rows.into_iter().zip(paths).enumerate() {
             // a row is lit when it is the selection or holds it (a tile picked deeper on the map)
             let lit = match (&self.selected, &r.target) {
                 (Some(Target::Dir(sel)), Target::Dir(nav)) => sel.starts_with(nav),
@@ -1195,8 +1206,8 @@ impl AnalyzerView {
             };
             let fraction = r.size as f64 / total;
             let target = r.target.clone();
-            list = list.child(
-                h_flex()
+            let right_target = r.target.clone();
+            let row = h_flex()
                     .id(("node-row", k))
                     .gap_3()
                     .px_2p5()
@@ -1206,6 +1217,13 @@ impl AnalyzerView {
                     .when(lit, |s| s.bg(theme.primary.opacity(if theme.is_dark() { 0.16 } else { 0.1 })))
                     .when(!lit, |s| s.hover(|s| s.bg(ui::row_hover(&theme))))
                     .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.on_row_click(target.clone(), ev.click_count, window, cx)))
+                    .on_mouse_down(MouseButton::Right, cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                        // the row the menu is for is the selection, as in Explorer
+                        if right_target != Target::Rest {
+                            this.selected = Some(right_target.clone());
+                            cx.notify();
+                        }
+                    }))
                     .child(Icon::new(r.icon).size_5().flex_shrink_0().text_color(r.color))
                     .child(
                         v_flex()
@@ -1225,8 +1243,14 @@ impl AnalyzerView {
                                     .child(div().max_w(px(130.)).text_xs().text_color(theme.muted_foreground).truncate().child(r.details))
                                     .child(div().w(px(38.)).flex_shrink_0().text_right().text_xs().text_color(theme.muted_foreground).child(fmt::percent(fraction))),
                             ),
-                    ),
-            );
+                    );
+            list = list.child(match path {
+                Some(path) => {
+                    let (this, target) = (this.clone(), r.target.clone());
+                    row.context_menu(move |menu, _, cx| row_menu(menu, cx.theme().danger, this.clone(), target.clone(), path.clone())).into_any_element()
+                }
+                None => row.into_any_element(),
+            });
         }
         div()
             .id("node-list")
@@ -1644,6 +1668,57 @@ impl AnalyzerView {
             .child(div().id("growth-scroll").flex_1().min_h_0().overflow_y_scrollbar().child(ui::card(cx).p_1p5().child(list)))
             .into_any_element()
     }
+}
+
+/// Right-click menu of a row in the folder list (the node menu of the 1.x tree).
+fn row_menu(menu: PopupMenu, danger: Hsla, this: WeakEntity<AnalyzerView>, target: Target, path: PathBuf) -> PopupMenu {
+    let is_dir = matches!(target, Target::Dir(_));
+    let excluded = crate::data::settings::get().is_excluded(&path.to_string_lossy());
+    // the menu acts on the row it was opened on, whatever got selected since
+    let act = move |f: fn(&mut AnalyzerView, &mut Window, &mut Context<AnalyzerView>)| {
+        let (this, target) = (this.clone(), target.clone());
+        move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+            this.update(cx, |v, cx| {
+                v.selected = Some(target.clone());
+                f(v, window, cx);
+            })
+            .ok();
+        }
+    };
+    let (p1, p2, p3, p4) = (path.clone(), path.clone(), path.clone(), path.clone());
+    menu.item(PopupMenuItem::new("Открыть").icon(Icon::new(Lucide::ExternalLink)).on_click(move |_, _, _| {
+        if is_dir {
+            shell::open_folder(&p1);
+        } else {
+            shell::open(&p1.to_string_lossy());
+        }
+    }))
+    .item(PopupMenuItem::new("Показать в Проводнике").icon(Icon::new(Lucide::FolderOpen)).on_click(move |_, _, _| shell::show_in_explorer(&p2)))
+    .item(PopupMenuItem::new("Копировать путь").icon(Icon::new(Lucide::Copy)).on_click(move |_, _, cx| {
+        cx.write_to_clipboard(ClipboardItem::new_string(p3.to_string_lossy().to_string()))
+    }))
+    .when(is_dir, |m| {
+        m.separator()
+            .item(PopupMenuItem::new("Сжать папку…").icon(Icon::new(Lucide::Archive)).on_click(act(|v, window, cx| v.compress_selected(window, cx))))
+            .item(PopupMenuItem::new("Перенести на другой диск…").icon(Icon::new(Lucide::FolderInput)).on_click(act(|v, window, cx| v.move_selected(window, cx))))
+    })
+    .item(
+        PopupMenuItem::new(if excluded { "Уже в исключениях" } else { "Никогда не трогать (в исключения)" })
+            .icon(Icon::new(Lucide::ShieldCheck))
+            .disabled(excluded)
+            .on_click(move |_, window, cx| {
+                let p = p4.to_string_lossy().to_string();
+                crate::data::settings::update(|s| {
+                    if !s.exclusions.iter().any(|e| e.eq_ignore_ascii_case(&p)) {
+                        s.exclusions.push(p.clone());
+                    }
+                });
+                let name = p4.file_name().unwrap_or_default().to_string_lossy().to_string();
+                window.push_notification(Notification::success(format!("«{name}» в исключениях: Простор не будет её чистить и удалять")), cx);
+            }),
+    )
+    .separator()
+    .item(PopupMenuItem::new("Переместить в корзину…").icon(Icon::new(Lucide::Trash).text_color(danger)).on_click(act(|v, window, cx| v.delete_selection(window, cx))))
 }
 
 fn path_size(v: &AnalyzerView, p: &Path) -> u64 {

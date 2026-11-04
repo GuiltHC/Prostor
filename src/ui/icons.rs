@@ -10,7 +10,7 @@ gpui_kit::assets::icon_assets!(
         AppWindow, Archive, ArchiveRestore, ArrowUp, Ban, BookOpen, Bug, ChartPie, ChevronRight, CircleCheck, Clock, Cloud, Code, Copy, Cpu,
         Database, Download, ExternalLink, File, FileClock, FileDown, FileText, Film, Folder, FolderInput, FolderOpen, Gamepad2, Globe,
         HardDrive, Hourglass, Image, Info, Keyboard, LayoutDashboard, ListFilter, ListX, Lock, MessageCircle, Monitor, MonitorCog, Moon,
-        Music, Package, Palette, Play, Plus, RefreshCw, Rocket, Search, Send, Settings, Settings2, ShieldAlert, Shredder, Sparkles, Store,
+        Music, Package, Palette, Play, Plus, RefreshCw, Rocket, Search, Send, Settings, Settings2, ShieldAlert, ShieldCheck, Shredder, Sparkles, Store,
         Sun, Timer, Trash, TrendingDown, TrendingUp, TriangleAlert, Undo2, Usb, User, Users, Zap,
     ]
 );
