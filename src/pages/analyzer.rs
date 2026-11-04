@@ -98,6 +98,10 @@ pub struct AnalyzerView {
     hits: Rc<RefCell<Vec<Hit>>>,
     hovered: Option<usize>,
     selected: Option<Target>,
+    /// Category picked in the legend: other tiles on the map are dimmed.
+    highlight: Option<u8>,
+    /// The window is narrow: the folder list next to the map gets less room.
+    narrow: bool,
     tab: Tab,
     pending_tab: Option<Tab>,
     table: Entity<TableState<FilesDelegate>>,
@@ -142,6 +146,8 @@ impl AnalyzerView {
             hits: Rc::default(),
             hovered: None,
             selected: None,
+            highlight: None,
+            narrow: false,
             tab: Tab::Map,
             pending_tab: None,
             table,
@@ -182,6 +188,7 @@ impl AnalyzerView {
         self.dups = Dups::None;
         self.growth = None;
         self.selected = None;
+        self.highlight = None;
         cx.notify();
 
         let work = cx.background_executor().spawn({
@@ -306,10 +313,40 @@ impl AnalyzerView {
 
     fn go_up(&mut self, cx: &mut Context<Self>) {
         if !self.nav.is_empty() {
+            let came_from = self.nav.clone();
             let mut nav = self.nav.clone();
             nav.pop();
             self.navigate(nav, cx);
+            self.selected = Some(Target::Dir(came_from));
         }
+    }
+
+    /// A row of the folder list: one click selects, a double click opens.
+    fn on_row_click(&mut self, target: Target, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+        if clicks >= 2 {
+            match &target {
+                Target::Dir(nav) => {
+                    let openable = self.tree.as_ref().is_some_and(|t| {
+                        let t = t.read().unwrap();
+                        let n = t.at(nav);
+                        !n.is_virtual && (!n.dirs.is_empty() || !n.files.is_empty())
+                    });
+                    if openable {
+                        self.navigate(nav.clone(), cx);
+                    }
+                }
+                Target::File(parent, name) => {
+                    if let Some(p) = self.path_of(parent) {
+                        shell::show_in_explorer(&p.join(name));
+                    }
+                }
+                Target::Rest => {}
+            }
+            return;
+        }
+        self.selected = (target != Target::Rest).then_some(target);
+        cx.notify();
     }
 
     fn pick_folder(&mut self, cx: &mut Context<Self>) {
@@ -999,12 +1036,12 @@ impl AnalyzerView {
             }
         };
         let selected = self.selection();
-        let canvas_el = treemap_canvas(tree.clone(), self.nav.clone(), self.hits.clone(), self.hovered, self.selected.clone(), theme.background, theme.foreground, theme.is_dark());
+        let canvas_el = treemap_canvas(tree.clone(), self.nav.clone(), self.hits.clone(), self.hovered, self.selected.clone(), self.highlight, theme.background, theme.foreground, theme.is_dark());
         let map = div()
             .id("treemap")
             .flex_1()
-            .min_h(px(220.))
-            .rounded_md()
+            .size_full()
+            .rounded_lg()
             .overflow_hidden()
             .bg(theme.muted)
             .child(canvas_el.size_full())
@@ -1051,17 +1088,27 @@ impl AnalyzerView {
             None => div().flex_shrink_0().text_sm().text_color(theme.muted_foreground).truncate().child(hover_line.clone()).into_any_element(),
         };
 
+        let list_w = if self.narrow { 290. } else { 350. };
         v_flex()
             .flex_1()
             .min_h_0()
             .gap_2()
-            .child(map)
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_h(px(240.))
+                    .gap_3()
+                    .items_stretch()
+                    .child(div().w(px(list_w)).flex_shrink_0().h_full().child(ui::card(cx).size_full().overflow_hidden().child(self.render_list(tree, cx))))
+                    .child(v_flex().flex_1().min_w_0().h_full().child(map)),
+            )
             .child(actions)
             .when(selected.is_some(), |s| s.child(div().text_xs().text_color(theme.muted_foreground).truncate().child(hover_line)))
-            .child(self.render_legend(cx))
+            .child(self.render_legend(cx).flex_shrink_0())
             .child(
                 v_flex()
-                    .h(px(240.))
+                    .flex_shrink_0()
+                    .h(px(200.))
                     .gap_1()
                     .child(
                         h_flex()
@@ -1073,17 +1120,148 @@ impl AnalyzerView {
             )
     }
 
+    /// What the current folder holds, largest first: the list next to the map (as in 1.x).
+    fn render_list(&self, tree: &Tree, cx: &mut Context<Self>) -> impl IntoElement {
+        const MAX_FILE_ROWS: usize = 200;
+        let theme = cx.theme().clone();
+        let t = tree.read().unwrap();
+        let node = t.at(&self.nav);
+        let total = node.size.max(1) as f64;
+        struct Row {
+            target: Target,
+            name: String,
+            size: u64,
+            icon: Lucide,
+            color: Hsla,
+            details: String,
+        }
+        let folder: Hsla = hsla(40. / 360., 0.85, if theme.is_dark() { 0.6 } else { 0.48 }, 1.0);
+        let grey: Hsla = hsla(220. / 360., 0.1, 0.55, 1.0);
+        let mut rows: Vec<Row> = Vec::with_capacity(node.dirs.len() + node.files.len().min(MAX_FILE_ROWS) + 1);
+        for (i, d) in node.dirs.iter().enumerate() {
+            let mut nav = self.nav.clone();
+            nav.push(i);
+            let details = if d.is_virtual {
+                "Теневые копии, метаданные и файлы без доступа".to_string()
+            } else {
+                let mut s = fmt::files(d.file_count);
+                if d.access_denied {
+                    s.push_str(" · нет доступа");
+                }
+                s
+            };
+            rows.push(Row {
+                target: Target::Dir(nav),
+                name: d.name.to_string(),
+                size: d.size,
+                icon: if d.is_virtual { Lucide::Lock } else { Lucide::Folder },
+                color: if d.is_virtual { grey } else { folder },
+                details,
+            });
+        }
+        for f in node.files.iter().take(MAX_FILE_ROWS) {
+            let info = categories::info(f.category);
+            rows.push(Row {
+                target: Target::File(self.nav.clone(), f.name.to_string()),
+                name: f.name.to_string(),
+                size: f.size,
+                icon: Lucide::File,
+                color: rgb(info.color).into(),
+                details: if f.modified > 0 { fmt::filetime_date(f.modified) } else { info.title.to_string() },
+            });
+        }
+        if node.files.len() > MAX_FILE_ROWS {
+            let rest = &node.files[MAX_FILE_ROWS..];
+            rows.push(Row {
+                target: Target::Rest,
+                name: format!("Ещё {}", fmt::files(rest.len() as u64)),
+                size: rest.iter().map(|f| f.size).sum(),
+                icon: Lucide::File,
+                color: grey,
+                details: "мелкие файлы этой папки".into(),
+            });
+        }
+        rows.sort_by_key(|r| std::cmp::Reverse(r.size));
+        drop(t);
+
+        let mut list = v_flex().gap_0p5().p_1p5();
+        for (k, r) in rows.into_iter().enumerate() {
+            // a row is lit when it is the selection or holds it (a tile picked deeper on the map)
+            let lit = match (&self.selected, &r.target) {
+                (Some(Target::Dir(sel)), Target::Dir(nav)) => sel.starts_with(nav),
+                (Some(Target::File(sel_parent, _)), Target::Dir(nav)) => sel_parent.starts_with(nav),
+                (Some(sel), target) => sel == target,
+                _ => false,
+            };
+            let fraction = r.size as f64 / total;
+            let target = r.target.clone();
+            list = list.child(
+                h_flex()
+                    .id(("node-row", k))
+                    .gap_3()
+                    .px_2p5()
+                    .py_2()
+                    .rounded_lg()
+                    .cursor_pointer()
+                    .when(lit, |s| s.bg(theme.primary.opacity(if theme.is_dark() { 0.16 } else { 0.1 })))
+                    .when(!lit, |s| s.hover(|s| s.bg(ui::row_hover(&theme))))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| this.on_row_click(target.clone(), ev.click_count, window, cx)))
+                    .child(Icon::new(r.icon).size_5().flex_shrink_0().text_color(r.color))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(div().flex_1().min_w_0().text_sm().font_medium().truncate().child(r.name))
+                                    .child(div().flex_shrink_0().text_sm().font_semibold().child(fmt::size(r.size))),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(div().flex_1().child(ui::bar(fraction as f32, r.color.opacity(0.85), cx).h(px(4.))))
+                                    .child(div().max_w(px(130.)).text_xs().text_color(theme.muted_foreground).truncate().child(r.details))
+                                    .child(div().w(px(38.)).flex_shrink_0().text_right().text_xs().text_color(theme.muted_foreground).child(fmt::percent(fraction))),
+                            ),
+                    ),
+            );
+        }
+        div()
+            .id("node-list")
+            .size_full()
+            .overflow_y_scrollbar()
+            .child(list)
+    }
+
     fn render_legend(&self, cx: &mut Context<Self>) -> Div {
         let theme = cx.theme().clone();
-        let mut row = h_flex().gap_x_4().gap_y_1().flex_wrap().text_xs();
+        let mut row = h_flex().gap_x_1().gap_y_0p5().flex_wrap().text_xs();
         if let Some(stats) = &self.stats {
             let total: u64 = stats.categories.iter().map(|c| c.size).sum::<u64>().max(1);
             for c in stats.categories.iter().take(9) {
                 let info = categories::info(c.category);
+                let cat = c.category;
+                let dimmed = self.highlight.is_some_and(|h| h != cat);
+                let on = self.highlight == Some(cat);
                 row = row.child(
                     h_flex()
+                        .id(("legend", cat as usize))
                         .gap_1()
                         .items_center()
+                        .px_1p5()
+                        .py_0p5()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .when(dimmed, |s| s.opacity(0.45))
+                        .when(on, |s| s.bg(theme.foreground.opacity(0.08)))
+                        .hover(|s| s.bg(theme.foreground.opacity(0.05)))
+                        .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Подсветить на карте только этот тип файлов").build(window, cx))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.highlight = if this.highlight == Some(cat) { None } else { Some(cat) };
+                            cx.notify();
+                        }))
                         .child(div().size(px(10.)).rounded_sm().bg(rgb(info.color)))
                         .child(info.title)
                         .child(div().text_color(theme.muted_foreground).child(format!("{} · {}", fmt::size(c.size), fmt::percent(c.size as f64 / total as f64)))),
@@ -1480,7 +1658,8 @@ fn path_size(v: &AnalyzerView, p: &Path) -> u64 {
 }
 
 impl Render for AnalyzerView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.narrow = window.viewport_size().width < px(1150.);
         let body = match &self.state {
             ScanState::Scanning { progress, started, target, mft } => {
                 let (progress, started, target, mft) = (progress.clone(), *started, target.clone(), *mft);
@@ -1518,6 +1697,8 @@ impl Render for AnalyzerView {
 struct Tile {
     rect: Rect,
     color: Hsla,
+    /// File category, or the dominant one of a collapsed folder (None for frames and "the rest").
+    cat: Option<u8>,
     label: Option<String>,
     frame: bool,
     hit: usize,
@@ -1535,6 +1716,7 @@ fn treemap_canvas(
     hits: Rc<RefCell<Vec<Hit>>>,
     hovered: Option<usize>,
     selected: Option<Target>,
+    highlight: Option<u8>,
     background: Hsla,
     foreground: Hsla,
     dark: bool,
@@ -1563,6 +1745,11 @@ fn treemap_canvas(
                 let mut color = t.color;
                 if hovered == Some(t.hit) {
                     color.l = (color.l + 0.12).min(0.95);
+                }
+                // a legend pick fades everything of other types into the background
+                if !t.frame && highlight.is_some() && t.cat != highlight {
+                    color.s *= 0.2;
+                    color.a = 0.22;
                 }
                 let b = bounds(point(px(r.x), px(r.y)), size(px(r.w), px(r.h)));
                 let radius = px(if r.w > 8.0 && r.h > 8.0 { 3.0 } else { 0.0 });
@@ -1637,7 +1824,7 @@ fn layout_level(node: &DirNode, nav: &[usize], rect: Rect, depth: usize, dark: b
                 size: rest,
                 category: None,
             });
-            tiles.push(Tile { rect: *r, color: hsla(0., 0., if dark { 0.35 } else { 0.62 }, 1.), label: None, frame: false, hit: hit_ix, selected: false });
+            tiles.push(Tile { rect: *r, color: hsla(0., 0., if dark { 0.35 } else { 0.62 }, 1.), cat: None, label: None, frame: false, hit: hit_ix, selected: false });
             continue;
         }
         let (size, item) = (items[k].0, &items[k].1);
@@ -1656,11 +1843,11 @@ fn layout_level(node: &DirNode, nav: &[usize], rect: Rect, depth: usize, dark: b
                 if nested {
                     let mut frame = color;
                     frame.l *= if dark { 0.55 } else { 0.7 };
-                    tiles.push(Tile { rect: *r, color: frame, label: show_label.then_some(label), frame: true, hit: hit_ix, selected: false });
+                    tiles.push(Tile { rect: *r, color: frame, cat: None, label: show_label.then_some(label), frame: true, hit: hit_ix, selected: false });
                     layout_level(d, &child_nav, r.inset(2.0, HEADER_H, 2.0, 2.0), depth + 1, dark, tiles, hits);
                 } else {
                     color.s *= 0.75;
-                    tiles.push(Tile { rect: *r, color, label: show_label.then_some(label), frame: false, hit: hit_ix, selected: false });
+                    tiles.push(Tile { rect: *r, color, cat: (!d.is_virtual).then_some(d.dominant), label: show_label.then_some(label), frame: false, hit: hit_ix, selected: false });
                 }
             }
             Item::File(f) => {
@@ -1668,6 +1855,7 @@ fn layout_level(node: &DirNode, nav: &[usize], rect: Rect, depth: usize, dark: b
                 tiles.push(Tile {
                     rect: *r,
                     color: category_color(f.category),
+                    cat: Some(f.category),
                     label: show_label.then(|| format!("{}  {}", f.name, fmt::size(size))),
                     frame: false,
                     hit: hit_ix,
