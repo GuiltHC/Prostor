@@ -74,7 +74,7 @@ impl DirNode {
     /// Indices of the folder `target` (a full path) below this root.
     pub fn find(&self, target: &Path) -> Option<Vec<usize>> {
         let root = self.name.trim_end_matches('\\').to_lowercase();
-        let t = target.to_string_lossy().trim_end_matches('\\').to_lowercase();
+        let t = crate::sys::long_path(target).to_string_lossy().trim_end_matches('\\').to_lowercase();
         if t == root {
             return Some(Vec::new());
         }
@@ -861,6 +861,9 @@ mod tests {
         assert_eq!(tree.dirs[0].dominant, categories::Category::Documents as u8);
         assert!(tree.files[0].created > 0 && tree.files[0].used >= tree.files[0].modified);
 
+        // the tree knows the folder by its long name even when asked with an 8.3 one (as on CI runners)
+        let short = root.clone();
+        let root = crate::sys::long_path(&root);
         let st = stats(&tree, &root, 2);
         assert_eq!(st.largest.len(), 2);
         assert_eq!(st.largest[0].name, "big.mp4");
@@ -870,6 +873,7 @@ mod tests {
 
         assert_eq!(tree.full_path(&[0, 0]), root.join("a").join("b"));
         assert_eq!(tree.find(&root.join("A").join("b")), Some(vec![0, 0]));
+        assert_eq!(tree.find(&short.join("a").join("b")), Some(vec![0, 0]));
         tree.remove(&[0], Some(0), None);
         assert_eq!(tree.size, 8000);
         assert_eq!(tree.dirs[0].size, 3000);
