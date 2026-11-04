@@ -1,9 +1,5 @@
-bin/
-obj/
-dist/
+/target/
+/dist/
 .vs/
 .vscode/
-*.user
-*.suo
 *.pfx
-TestResults/

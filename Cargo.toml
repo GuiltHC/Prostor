@@ -1,0 +1,60 @@
+[package]
+name = "prostor"
+version = "2.0.0"
+edition = "2024"
+description = "Простор — программы и место на диске (Rust/GPUI)"
+
+[dependencies]
+gpui-kit = "0.9.0"
+rayon = "1.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4.45", features = ["serde"] }
+winreg = "0.56"
+futures = "0.3"
+raw-window-handle = "0.6"
+roxmltree = "0.21.2"
+regex = "1.13.1"
+windows = { version = "0.62.2", features = ["Management_Deployment", "ApplicationModel", "Foundation", "Foundation_Collections", "Win32_System_Com"] }
+windows-future = "0.3.2"
+ureq = { version = "3", features = ["json"] }
+sha2 = "0.11"
+sha1 = "0.11"
+flate2 = "1"
+
+[dependencies.windows-sys]
+version = "0.61.2"
+features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Dwm", "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Restore",
+    "Win32_System_Environment",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_Memory",
+    "Win32_System_Pipes",
+    "Win32_System_Power",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Services",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[build-dependencies]
+winresource = "0.1"
