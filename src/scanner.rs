@@ -150,7 +150,8 @@ impl Progress {
 }
 
 fn normalize_root(root: &Path) -> String {
-    let mut s = root.to_string_lossy().into_owned();
+    // the MFT and the snapshots know folders by their long names only
+    let mut s = crate::sys::long_path(root).to_string_lossy().into_owned();
     if s.len() == 2 && s.ends_with(':') {
         s.push('\\');
     }

@@ -56,3 +56,32 @@ mod tests {
         assert!(!path_within(r"C:\x", ""));
     }
 }
+
+/// Expands 8.3 short names ("C:\Users\RUNNER~1") to the real ones; the path as given when that fails.
+pub fn long_path(path: &std::path::Path) -> std::path::PathBuf {
+    use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
+    let w = wide_path(path);
+    let mut buf = vec![0u16; 1024];
+    let n = unsafe { GetLongPathNameW(w.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    if n == 0 || n >= buf.len() {
+        return path.to_path_buf();
+    }
+    std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n]))
+}
+
+#[cfg(test)]
+mod long_path_tests {
+    use super::*;
+
+    #[test]
+    fn expands_short_names() {
+        use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+        let long = long_path(&std::env::temp_dir());
+        let w = wide_path(&long);
+        let mut buf = vec![0u16; 1024];
+        let n = unsafe { GetShortPathNameW(w.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
+        let short = std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n]));
+        assert_eq!(long_path(&short).to_string_lossy().to_lowercase(), long.to_string_lossy().to_lowercase());
+        assert!(!long.to_string_lossy().contains('~') || short == long, "{long:?}");
+    }
+}

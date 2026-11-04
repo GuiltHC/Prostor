@@ -149,9 +149,14 @@ mod tests {
 
     #[test]
     fn runs_cmd() {
-        let r = run(system_tool("cmd.exe"), &["/c", "echo", "привет"], Encoding::Oem, Duration::from_secs(10)).unwrap();
+        let r = run(system_tool("cmd.exe"), &["/c", "echo", "hello"], Encoding::Oem, Duration::from_secs(10)).unwrap();
         assert!(r.ok());
-        assert!(r.output.contains("привет"), "{:?}", r.output);
+        assert!(r.output.contains("hello"), "{:?}", r.output);
+        // Cyrillic survives the console code page only where that code page has it (866 on Russian Windows)
+        if unsafe { windows_sys::Win32::Globalization::GetOEMCP() } == 866 {
+            let r = run(system_tool("cmd.exe"), &["/c", "echo", "привет"], Encoding::Oem, Duration::from_secs(10)).unwrap();
+            assert!(r.output.contains("привет"), "{:?}", r.output);
+        }
     }
 
     #[test]
